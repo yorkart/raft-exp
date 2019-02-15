@@ -142,28 +142,36 @@ public class Log {
         return segment;
     }
 
+    private Segment getLatestSegment(long newLastLogIndex, int appendEntrySize) throws IOException {
+        int segmentSize = startLogIndexSegmentMap.size();
+
+        if (segmentSize == 0) {
+            return createSegment(newLastLogIndex);
+        }
+
+        Segment latestSegment = startLogIndexSegmentMap.lastEntry().getValue();
+        if (!latestSegment.isCanWrite()) {
+            return createSegment(newLastLogIndex);
+        }
+
+        if (latestSegment.getSize() + appendEntrySize >= maxSegmentSize) {
+            renameSegment(latestSegment);
+            return createSegment(newLastLogIndex);
+        }
+
+        return latestSegment;
+    }
+
+
     public long append(List<RaftMessage.LogEntry> entries) {
         long newLastLogIndex = this.getLastLogIndex();
         for (RaftMessage.LogEntry entry : entries) {
             newLastLogIndex++;
 
             int entrySize = entry.getSerializedSize(); // 对象序列化后的大小
-            int segmentSize = startLogIndexSegmentMap.size();
 
-            Segment latestSegment;
             try {
-                if (segmentSize == 0) {
-                    latestSegment = createSegment(newLastLogIndex);
-                } else {
-                    Segment segment = startLogIndexSegmentMap.lastEntry().getValue();
-                    if (!segment.isCanWrite()) {
-                        latestSegment = createSegment(newLastLogIndex);
-                    } else if (segment.getSize() + entrySize >= maxSegmentSize) {
-                        latestSegment = renameSegment(segment);
-                    } else {
-                        latestSegment = segment;
-                    }
-                }
+                Segment latestSegment = getLatestSegment(newLastLogIndex, entrySize);
 
                 // TODO 是否支持0，重新构造data数据怎么处理？
                 if (entry.getIndex() == 0) {
@@ -235,7 +243,7 @@ public class Log {
                     String newFullFileName = logDataDir + File.separator + newFileName;
                     segment.rename(newFullFileName);
                 }
-            }catch (IOException e) {
+            } catch (IOException e) {
                 logger.warn("io exception", e);
             }
         }
