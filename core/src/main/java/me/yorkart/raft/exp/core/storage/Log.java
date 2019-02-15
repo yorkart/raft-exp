@@ -33,21 +33,24 @@ public class Log {
     private TreeMap<Long, Segment> startLogIndexSegmentMap = new TreeMap<>();
 
     public Log(String dataDir, long maxSegmentSize) {
+        this.maxSegmentSize = maxSegmentSize;
+
         this.logDir = dataDir + File.separator + "log";
         this.logDataDir = logDir + File.separator + "data";
         this.logMetadataFilePath = logDir + File.separator + "metadata";
 
         new StorageMemory(logDataDir).mkdirs();
 
-        this.maxSegmentSize = maxSegmentSize;
         this.metaData = readMetadata();
         if (this.metaData == null) {
             if (startLogIndexSegmentMap.size() > 0) {
                 throw new RuntimeException("No readable metadata file but found segments in " + logDir);
             }
             this.metaData = RaftMessage.LogMetaData.newBuilder().setFirstLogIndex(1).build();
+            logger.info("metadata init: " + metaData.toString());
+        } else {
+            logger.info("metadata load: " + metaData.toString());
         }
-        logger.info("metadata: " + metaData.toString());
     }
 
     public long getLastLogIndex() {
@@ -116,7 +119,7 @@ public class Log {
     }
 
     private Segment createSegment(long startIndex) throws IOException {
-        String newSegmentFileName = String.format("open-%d", startIndex);
+        String newSegmentFileName = String.format("open-%020d", startIndex);
         String fileName = logDataDir + File.separator + newSegmentFileName;
 
         Segment segment = new Segment(fileName);
@@ -162,6 +165,7 @@ public class Log {
                     }
                 }
 
+                // TODO 是否支持0，重新构造data数据怎么处理？
                 if (entry.getIndex() == 0) {
                     entry = RaftMessage.LogEntry.newBuilder()
                             .setIndex(newLastLogIndex)
@@ -169,7 +173,17 @@ public class Log {
                 }
 
                 latestSegment.setEndIndex(entry.getIndex());
-                latestSegment.getEntries().add(new Record(0L, entry));
+                latestSegment.getEntries().add(
+                        new Record(latestSegment.getStorage().getFilePointer(), entry)
+                );
+
+                byte[] dataSize = entry.toByteArray();
+                latestSegment.getStorage().write(dataSize);
+                latestSegment.setSize(latestSegment.getSize() + dataSize.length);
+
+                if (!startLogIndexSegmentMap.containsKey(latestSegment.getStartIndex())) {
+                    startLogIndexSegmentMap.put(latestSegment.getStartIndex(), latestSegment);
+                }
 
                 totalSize.addAndGet(entrySize);
             } catch (Exception e) {
@@ -317,6 +331,16 @@ public class Log {
             storage.close();
         } catch (IOException e) {
             logger.warn("meta file not exist, name={}", logMetadataFilePath);
+        }
+    }
+
+    public void close() {
+        for (Segment segment : startLogIndexSegmentMap.values()) {
+            try {
+                segment.close();
+            } catch (IOException e) {
+                logger.error("close segment error, path: " + segment.getStorage().getPath(), e);
+            }
         }
     }
 }

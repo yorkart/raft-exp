@@ -46,8 +46,8 @@ public class Segment {
     }
 
     // segmnet释放工作，因为当前类为内存模拟存储，所有不需要任何操作
-    public void close() {
-
+    public void close() throws IOException {
+        storage.close();
     }
 
     public boolean isCanWrite() {
