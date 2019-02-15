@@ -7,6 +7,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -46,6 +47,14 @@ public class StorageMemory extends Storage {
         }
 
         return new StorageMemory(newPath);
+    }
+
+    @Override
+    public void remove() {
+        File file = new File(path);
+        if (file.exists()){
+            file.delete();
+        }
     }
 
     @Override
@@ -103,6 +112,13 @@ public class StorageMemory extends Storage {
     @Override
     public long length() throws IOException {
         return randomAccessFile.length();
+    }
+
+    @Override
+    public void truncate(long size) throws IOException {
+        FileChannel fileChannel = randomAccessFile.getChannel();
+        fileChannel.truncate(size);
+        fileChannel.close();
     }
 
     @Override

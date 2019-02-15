@@ -19,6 +19,8 @@ public abstract class Storage {
 
     public abstract Storage rename(String newPath);
 
+    public abstract void remove();
+
     public abstract void open(String mode) throws IOException;
 
     public abstract void close() throws IOException;
@@ -34,6 +36,8 @@ public abstract class Storage {
     public abstract void seek(long pos) throws IOException;
 
     public abstract long length() throws IOException;
+
+    public abstract void truncate(long size) throws IOException;
 
     public String getPath()  {
         return path;

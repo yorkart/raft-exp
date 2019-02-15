@@ -30,6 +30,8 @@ public class Segment {
     public void rename(String newFileName) throws IOException {
         storage.close();
         storage = storage.rename(newFileName);
+        storage.open("rw");
+        this.size = this.storage.length();
     }
 
     public RaftMessage.LogEntry getEntry(long index) {
@@ -96,4 +98,7 @@ public class Segment {
         return storage;
     }
 
+    public void setStorage(Storage storage) {
+        this.storage = storage;
+    }
 }

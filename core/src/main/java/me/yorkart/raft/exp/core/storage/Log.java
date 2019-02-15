@@ -130,9 +130,10 @@ public class Log {
 
     private Segment renameSegment(Segment segment) throws IOException {
         String newFileName = String.format("%020d-%020d", segment.getStartIndex(), segment.getEndIndex());
+        String newFullFileName = logDataDir + File.separator + newFileName;
 
         segment.setCanWrite(false);
-        segment.rename(newFileName);
+        segment.rename(newFullFileName);
 
         startLogIndexSegmentMap.put(segment.getStartIndex(), segment);
         return segment;
@@ -181,14 +182,54 @@ public class Log {
 
     /**
      * 删除索引之后的日志
+     *
      * @param index 索引，包含该索引
      */
     public void deleteAfterIndex(long index) {
+        if (index >= getLastLogIndex()) {
+            return;
+        }
 
+        logger.info("Truncating log from old end index {} to new end index {}", getLastLogIndex(), index);
+
+        while (!startLogIndexSegmentMap.isEmpty()) {
+            Segment segment = startLogIndexSegmentMap.lastEntry().getValue();
+            if (index == segment.getEndIndex()) {
+                break;
+            }
+
+            try {
+                if (index < segment.getStartIndex()) {
+                    totalSize.addAndGet(-1 * segment.getSize());
+                    segment.getStorage().close();
+                    segment.getStorage().remove();
+                } else if (index < segment.getEndIndex()) {
+                    int i = (int) (index + 1 - segment.getStartIndex());
+
+                    segment.setEndIndex(index);
+
+                    long newSize = segment.getEntries().get(i).offset;
+                    totalSize.addAndGet(segment.getSize() - newSize);
+
+                    segment.getEntries().removeAll(
+                            segment.getEntries().subList(i, segment.getEntries().size())
+                    );
+                    segment.getStorage().truncate(newSize);
+                    segment.getStorage().close();
+
+                    String newFileName = String.format("%020d-%020d", segment.getStartIndex(), segment.getEndIndex());
+                    String newFullFileName = logDataDir + File.separator + newFileName;
+                    segment.rename(newFullFileName);
+                }
+            }catch (IOException e) {
+                logger.warn("io exception", e);
+            }
+        }
     }
 
     /**
      * 删除索引之前的日志
+     *
      * @param index
      */
     public void deleteBeforeIndex(long index) {
