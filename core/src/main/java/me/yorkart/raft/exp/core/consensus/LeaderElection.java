@@ -1,6 +1,7 @@
 package me.yorkart.raft.exp.core.consensus;
 
 import me.yorkart.raft.exp.core.proto.RaftMessage;
+import me.yorkart.raft.exp.core.storage.Log;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -82,7 +83,7 @@ public class LeaderElection {
 //        }
 
         // init from metadata
-        log = new Log();
+        log = new Log("", 1024 * 32);
         currentTerm = log.readMetadata().getCurrentTerm();
         votedFor = log.readMetadata().getVotedFor();
 
