@@ -179,6 +179,22 @@ public class Log {
         return newLastLogIndex;
     }
 
+    /**
+     * 删除索引之后的日志
+     * @param index 索引，包含该索引
+     */
+    public void deleteAfterIndex(long index) {
+
+    }
+
+    /**
+     * 删除索引之前的日志
+     * @param index
+     */
+    public void deleteBeforeIndex(long index) {
+
+    }
+
     public long getTotalSize() {
         return totalSize.get();
     }

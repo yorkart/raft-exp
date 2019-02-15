@@ -37,6 +37,10 @@ public class Peers {
         }
     }
 
+    public boolean contains(int peerId) {
+        return peerMap.containsKey(peerId);
+    }
+
     public int size() {
         return peerMap.size();
     }

@@ -2,9 +2,12 @@ package me.yorkart.raft.exp.core.consensus;
 
 import me.yorkart.raft.exp.core.proto.RaftMessage;
 import me.yorkart.raft.exp.core.storage.Log;
+import me.yorkart.raft.exp.core.storage.SequenceStateMachine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -47,10 +50,12 @@ public class LeaderElection {
      */
     // 已知提交的最高日志条目索引（初始0，持续递增）
     // index of highest log entry known to be committed (initialized to 0, increases monotonically)
-    private int commitIndex;
+    private long commitIndex;
     // 应用于状态机的最高日志条目索引（初始0，持续递增）
     // index of highest log entry applied to state machine (initialized to 0, increases monotonically)
-    private int lastApplied;
+    private long lastApplied;
+
+    private StateMachine stateMachine;
 
     private int leaderId; // leader节点id
     private NodeState state = NodeState.FOLLOWER;
@@ -81,6 +86,8 @@ public class LeaderElection {
 //                peerMap.put(server.getId(), peer);
 //            }
 //        }
+
+        stateMachine = new SequenceStateMachine(raftOptions.getDataDir());
 
         // init from metadata
         log = new Log("", 1024 * 32);
@@ -437,7 +444,127 @@ public class LeaderElection {
         }
 
         public RaftMessage.AppendEntriesResponse appendEntries(RaftMessage.AppendEntriesRequest request) {
-            return null;
+            leaderElection.lock.lock();
+            try {
+                RaftMessage.AppendEntriesResponse.Builder responseBuilder = RaftMessage.AppendEntriesResponse.newBuilder();
+                responseBuilder.setTerm(leaderElection.currentTerm);
+                responseBuilder.setResCode(RaftMessage.ResCode.RES_CODE_FAIL);
+                responseBuilder.setLastLogIndex(leaderElection.log.getLastLogIndex());
+
+                if (request.getTerm() < leaderElection.currentTerm) {
+                    return responseBuilder.build();
+                }
+
+                // 接受日志，当前状态一定不是leader，做卸任检测操作
+                leaderElection.stepDown(request.getTerm());
+
+                if (leaderElection.leaderId == 0) {
+                    leaderElection.leaderId = request.getLeaderId();
+                    logger.info("new leaderId={}", leaderElection.leaderId);
+                }
+
+                // TODO 确认逻辑：任期不一致，自动加一，重新做选举
+                if (leaderElection.leaderId != request.getLeaderId()) {
+                    logger.warn("Another peer={} declares that it is the leader at term={} which was occupied by leader={}",
+                            request.getLeaderId(), request.getTerm(), leaderElection.leaderId);
+                    leaderElection.stepDown(request.getTerm() + 1);
+                    responseBuilder.setResCode(RaftMessage.ResCode.RES_CODE_FAIL);
+                    responseBuilder.setTerm(request.getTerm() + 1);
+                    return responseBuilder.build();
+                }
+
+                // 如果对方最后日志的前一个索引比本机最后日志索引大，说明日志中间有丢失，拒绝本次请求
+                if (request.getPrevLogIndex() > leaderElection.log.getLastLogIndex()) {
+                    logger.info("Rejecting AppendEntries RPC would leave gap, request prevLogIndex={}, my lastLogIndex={}",
+                            request.getPrevLogIndex(), leaderElection.log.getLastLogIndex());
+                    return responseBuilder.build();
+                }
+
+                // 验证最后一条日志的term是否一致
+                if (request.getPrevLogIndex() >= leaderElection.log.getFirstLogIndex()
+                        && leaderElection.log.getEntryTerm(request.getPrevLogIndex()) != request.getPrevLogTerm()) {
+                    logger.info("Rejecting AppendEntries RPC: terms don't agree, request prevLogTerm={} in prevLogIndex={}, my is {}",
+                            request.getPrevLogTerm(), request.getPrevLogIndex(),
+                            leaderElection.log.getEntryTerm(request.getPrevLogIndex()));
+
+                    if(request.getPrevLogIndex() <= 0) {
+                        throw new IllegalArgumentException("request prevLogIndex <= 0");
+                    }
+
+                    responseBuilder.setLastLogIndex(request.getPrevLogIndex() - 1);
+                    return responseBuilder.build();
+                }
+
+                if (request.getEntriesCount() == 0) {
+                    logger.debug("heartbeat request from peer={} at term={}, my term={}", request.getLeaderId(), request.getTerm(), leaderElection.currentTerm);
+
+                    responseBuilder.setResCode(RaftMessage.ResCode.RES_CODE_SUCCESS);
+                    responseBuilder.setTerm(leaderElection.currentTerm);
+                    responseBuilder.setLastLogIndex(leaderElection.log.getLastLogIndex());
+                    advanceCommitIndex(request);
+                    return responseBuilder.build();
+                }
+
+
+                List<RaftMessage.LogEntry> entries = new ArrayList<>();
+                long index = request.getPrevLogIndex();
+                for (RaftMessage.LogEntry entry : request.getEntriesList()) {
+                    index++;
+
+                    // 对于已经确认无误的segment日志， 对方存在落后的日志，跳过
+                    if (index < leaderElection.log.getFirstLogIndex()) {
+                        continue;
+                    }
+
+                    // 对于当前segment内可能存在争议日志
+                    if (leaderElection.log.getLastLogIndex() >= index) {
+                        // 日志任期一致，可以跳过
+                        if (leaderElection.log.getEntryTerm(index) == entry.getTerm()) {
+                            continue;
+                        }
+
+                        // 日志任期不一致，删除本地争议索引后的所有数据
+                        long lastIndexKept = index - 1;
+                        leaderElection.log.deleteAfterIndex(lastIndexKept);
+                    }
+
+                    entries.add(entry);
+                }
+
+                leaderElection.log.append(entries);
+                leaderElection.log.updateMetaData(leaderElection.currentTerm, null, leaderElection.log.getLastLogIndex());
+
+                advanceCommitIndex(request);
+
+                logger.info("AppendEntries request from server {}  in term {} (my term is {}), entryCount={}",
+                        request.getLeaderId(), request.getTerm(), leaderElection.currentTerm, request.getEntriesCount());
+
+                responseBuilder.setResCode(RaftMessage.ResCode.RES_CODE_SUCCESS);
+                responseBuilder.setLastLogIndex(leaderElection.log.getLastLogIndex());
+
+                return responseBuilder.build();
+            } finally {
+                leaderElection.lock.unlock();
+            }
+        }
+
+        private void advanceCommitIndex(RaftMessage.AppendEntriesRequest request) {
+            leaderElection.commitIndex = Math.min(request.getLeaderCommit(), request.getPrevLogIndex() + request.getEntriesCount());
+
+            if (leaderElection.lastApplied < leaderElection.commitIndex) {
+                for(long index = leaderElection.lastApplied + 1; index < leaderElection.commitIndex; index ++) {
+                    RaftMessage.LogEntry entry = leaderElection.log.getEntry(index);
+                    if (entry != null) {
+//                        if (entry.getType() == RaftMessage.EntryType.ENTRY_TYPE_DATA) {
+                            leaderElection.stateMachine.apply(entry.getData().toByteArray());
+//                        } else if (entry.getType() == RaftMessage.EntryType.ENTRY_TYPE_CONFIGURATION) {
+//                            raftNode.applyConfiguration(entry);
+//                        }
+                    }
+
+                    leaderElection.lastApplied = index;
+                }
+            }
         }
 
         public RaftMessage.InstallSnapshotResponse installSnapshot(RaftMessage.InstallSnapshotRequest request) {
