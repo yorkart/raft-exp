@@ -35,18 +35,18 @@ public class LogTest {
     }
 
     @Test
-    public void testUpdateMetadata() {
-        log.updateMetadata(null, null, 2L);
+    public void testSaveMetadata() {
+        log.getMetadata().save(null, null, 2L);
     }
 
     @Test
     public void testReadMetadata() {
-        System.out.println(log.readMetadata());
+        System.out.println(log.getMetadata().load());
     }
 
     @Test
-    public void testReadSegment() {
-        log.readSegment();
+    public void testListSegments() {
+        log.listSegments();
     }
 
     @Test

@@ -101,6 +101,12 @@ public class Segment {
         storage = storage.rename(newFileName);
     }
 
+    public void remove() throws IOException {
+        this.storage.close();
+        this.storage.remove();
+        this.storage = null;
+    }
+
     public RaftMessage.LogEntry getEntry(long index) {
         if (startIndex == 0 || endIndex == 0) {
             return null;
@@ -117,55 +123,60 @@ public class Segment {
 //        storage.close();
 //    }
 
-    public boolean isCanWrite() {
-        return canWrite;
+    public void append(RaftMessage.LogEntry entry, byte[] entryBytes) throws IOException {
+        this.endIndex  = entry.getIndex();
+        this.entries.add(
+                new Record(this.storage.getFilePointer(), entry)
+        );
+
+        this.storage.write(entryBytes);
+        this.size += entryBytes.length;
     }
 
-    public void setCanWrite(boolean canWrite) {
-        this.canWrite = canWrite;
+    public void deleteAfterIndex(long index) throws IOException {
+        int i = (int) (index + 1 - this.startIndex);
+
+        this.endIndex = index;
+
+        long newSize = this.entries.get(i).offset;
+
+        this.entries.removeAll(
+                this.entries.subList(i, this.entries.size())
+        );
+        // TODO 删除多余日志步骤可以移除，通过文件名可以限定文件的数据范围，冗余数据通过文件过期方式一并删除，减少日志delete时间
+        this.storage.truncate(newSize);
+        this.size = this.storage.getFilePointer();
+    }
+
+    public boolean isCanWrite() {
+        return canWrite;
     }
 
     public long getStartIndex() {
         return startIndex;
     }
 
-    public void setStartIndex(long startIndex) {
-        this.startIndex = startIndex;
-    }
-
     public long getEndIndex() {
         return endIndex;
-    }
-
-    public void setEndIndex(long endIndex) {
-        this.endIndex = endIndex;
     }
 
     public long getSize() {
         return size;
     }
 
-    public void setSize(long size) {
-        this.size = size;
-    }
-
-    public List<Record> getEntries() {
-        return entries;
-    }
-
-    public void setEntries(List<Record> entries) {
-        this.entries = entries;
-    }
-
     public String getFileName() {
         return storage.getPath();
     }
 
-    public Storage getStorage() {
-        return storage;
-    }
-
-    public void setStorage(Storage storage) {
-        this.storage = storage;
+    @Override
+    public String toString() {
+        return "Segment{" +
+                "path='" + path + '\'' +
+                ", canWrite=" + canWrite +
+                ", startIndex=" + startIndex +
+                ", endIndex=" + endIndex +
+                ", size=" + size +
+                ", entries=" + entries.size() +
+                '}';
     }
 }

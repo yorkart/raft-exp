@@ -23,12 +23,11 @@ public class Log {
 
     private final String logDir;
     private final String logDataDir;
-    private final String logMetadataFilePath;
 
     private final long maxSegmentSize;
     private AtomicLong totalSize = new AtomicLong();
 
-    private RaftMessage.LogMetaData metaData;
+    private Metadata metadata;
     private TreeMap<Long, Segment> startLogIndexSegmentMap = new TreeMap<>();
 
     public Log(String dataDir, long maxSegmentSize) {
@@ -36,20 +35,14 @@ public class Log {
 
         this.logDir = dataDir + File.separator + "log";
         this.logDataDir = logDir + File.separator + "data";
-        this.logMetadataFilePath = logDir + File.separator + "metadata";
 
         new StorageFS(logDataDir).mkdirs();
 
-        this.metaData = readMetadata();
-        if (this.metaData == null) {
-            if (startLogIndexSegmentMap.size() > 0) {
-                throw new RuntimeException("No readable metadata file but found segments in " + logDir);
-            }
-            this.metaData = RaftMessage.LogMetaData.newBuilder().setFirstLogIndex(1).build();
-            logger.info("metadata init: " + metaData.toString());
-        } else {
-            logger.info("metadata load: " + metaData.toString());
-        }
+        this.metadata = new Metadata(logDir + File.separator + "metadata");
+    }
+
+    public Metadata getMetadata() {
+        return metadata;
     }
 
     public long getLastLogIndex() {
@@ -65,7 +58,7 @@ public class Log {
     }
 
     public long getFirstLogIndex() {
-        return metaData.getFirstLogIndex();
+        return metadata.getFirstLogIndex();
     }
 
     public long getEntryTerm(long index) {
@@ -84,7 +77,7 @@ public class Log {
 //     * @param votedFor
 //     * @param firstLogIndex
 //     */
-//    public void updateMetadata(Long currentTerm, Integer votedFor, Long firstLogIndex) {
+//    public void save(Long currentTerm, Integer votedFor, Long firstLogIndex) {
 //        RaftMessage.LogMetaData.Builder builder = RaftMessage.LogMetaData.newBuilder(this.metaData);
 //        if (currentTerm != null) {
 //            builder.setCurrentTerm(currentTerm);
@@ -161,8 +154,8 @@ public class Log {
             newLastLogIndex++;
 
 //            int entrySize = entry.getSerializedSize(); // 对象序列化后的大小
-            byte[] entryData = entry.toByteArray();
-            int entrySize = entryData.length;
+            byte[] entryBytes = entry.toByteArray();
+            int entrySize = entryBytes.length;
 
             try {
                 Segment latestSegment = getLatestSegment(newLastLogIndex, entrySize);
@@ -174,13 +167,7 @@ public class Log {
 //                            .build();
 //                }
 
-                latestSegment.setEndIndex(entry.getIndex());
-                latestSegment.getEntries().add(
-                        new Record(latestSegment.getStorage().getFilePointer(), entry)
-                );
-
-                latestSegment.getStorage().write(entryData);
-                latestSegment.setSize(latestSegment.getSize() + entryData.length);
+                latestSegment.append(entry, entryBytes);
 
                 totalSize.addAndGet(entrySize);
             } catch (Exception e) {
@@ -213,22 +200,14 @@ public class Log {
             try {
                 if (index < segment.getStartIndex()) {
                     totalSize.addAndGet(-1 * segment.getSize());
-                    segment.getStorage().close();
-                    segment.getStorage().remove();
+                    segment.remove();
                 } else if (index < segment.getEndIndex()) {
-                    int i = (int) (index + 1 - segment.getStartIndex());
-
-                    segment.setEndIndex(index);
-
-                    long newSize = segment.getEntries().get(i).offset;
-                    totalSize.addAndGet(segment.getSize() - newSize);
-
-                    segment.getEntries().removeAll(
-                            segment.getEntries().subList(i, segment.getEntries().size())
-                    );
-                    // TODO 删除多余日志步骤可以移除，通过文件名可以限定文件的数据范围，冗余数据通过文件过期方式一并删除，减少日志delete时间
-                    segment.getStorage().truncate(newSize);
+                    long size = segment.getSize();
+                    segment.deleteAfterIndex(index);
+                    long newSize = segment.getSize();
                     segment.close();
+
+                    totalSize.addAndGet(newSize - size);
                 }
             } catch (IOException e) {
                 logger.warn("io exception", e);
@@ -252,7 +231,7 @@ public class Log {
     /**
      * load segment from storage
      */
-    void readSegment() {
+    void listSegments() {
         List<String> fileNames = new StorageFS(logDataDir).getSortedFilesInDir();
 
         try {
@@ -278,69 +257,12 @@ public class Log {
         }
     }
 
-    public RaftMessage.LogMetaData readMetadata() {
-        byte[] data;
-        int len;
-        int readLen;
-        try {
-            Storage storage = StorageFS.openR(logMetadataFilePath);
-            len = storage.readInt();
-            data = new byte[len];
-            readLen = storage.read(data);
-        } catch (Exception e) {
-            logger.warn("meta file not exist, name={}", logMetadataFilePath);
-            return null;
-        }
-
-        if (readLen != len) {
-            logger.warn("meta file size discord");
-            return null;
-        }
-
-        try {
-            return RaftMessage.LogMetaData.parseFrom(data);
-        } catch (InvalidProtocolBufferException e) {
-            logger.warn("meta parse to proto error", e);
-            return null;
-        }
-    }
-
-    public void updateMetadata(Long currentTerm, Integer votedFor, Long firstLogIndex) {
-        RaftMessage.LogMetaData.Builder builder = RaftMessage.LogMetaData.newBuilder(this.metaData);
-        if (currentTerm != null) {
-            builder.setCurrentTerm(currentTerm);
-        }
-
-        if (votedFor != null) {
-            builder.setVotedFor(votedFor);
-        }
-
-        if (firstLogIndex != null) {
-            builder.setFirstLogIndex(firstLogIndex);
-        }
-
-        this.metaData = builder.build();
-        byte[] data = this.metaData.toByteArray();
-        try {
-            Storage storage = StorageFS.openRW(logMetadataFilePath);
-            storage.seek(0);
-            storage.writeInt(data.length);
-            storage.write(data);
-            storage.close();
-
-            logger.info("new segment meta info, currentTerm={}, votedFor={}, firstLogIndex={}",
-                    metaData.getCurrentTerm(), metaData.getVotedFor(), metaData.getFirstLogIndex());
-        } catch (IOException e) {
-            logger.warn("meta file not exist, name={}", logMetadataFilePath);
-        }
-    }
-
     public void close() {
         for (Segment segment : startLogIndexSegmentMap.values()) {
             try {
                 segment.close();
             } catch (IOException e) {
-                logger.error("close segment error, path: " + segment.getStorage().getPath(), e);
+                logger.error("close segment error, path: " + segment, e);
             }
         }
     }
