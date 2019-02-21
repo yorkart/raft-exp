@@ -36,7 +36,12 @@ public class LogTest {
 
     @Test
     public void testUpdateMetadata() {
-        log.updateMetaData(null, null, 2L);
+        log.updateMetadata(null, null, 2L);
+    }
+
+    @Test
+    public void testReadMetadata() {
+        System.out.println(log.readMetadata());
     }
 
     @Test

@@ -8,23 +8,21 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.channels.FileChannel;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
  * @author wangyue1
  * @date 2019/2/14
  */
-public class StorageMemory extends Storage {
-    private static Logger logger = LoggerFactory.getLogger(StorageMemory.class);
+public class StorageFS extends Storage {
+    private static Logger logger = LoggerFactory.getLogger(StorageFS.class);
 
     private RandomAccessFile randomAccessFile;
 
-    public StorageMemory(String path) {
+    public StorageFS(String path) {
         super(path);
     }
 
@@ -46,7 +44,7 @@ public class StorageMemory extends Storage {
             throw new RuntimeException("rename error");
         }
 
-        return new StorageMemory(newPath);
+        return new StorageFS(newPath);
     }
 
     @Override
@@ -80,7 +78,12 @@ public class StorageMemory extends Storage {
 
     @Override
     public int read(byte[] b) throws IOException {
-        return 0;
+        return randomAccessFile.read(b);
+    }
+
+    @Override
+    public int readInt() throws IOException {
+        return randomAccessFile.readInt();
     }
 
     @Override
@@ -92,6 +95,11 @@ public class StorageMemory extends Storage {
         randomAccessFile.read(data);
 
         return new byte[0];
+    }
+
+    @Override
+    public void writeInt(int v) throws IOException {
+        randomAccessFile.writeInt(v);
     }
 
     @Override
@@ -130,5 +138,17 @@ public class StorageMemory extends Storage {
         }
 
         return Arrays.stream(children).map(File::getName).collect(Collectors.toList());
+    }
+
+    public static Storage openR(String path) throws IOException {
+        Storage storage = new StorageFS(path);
+        storage.open("r");
+        return storage;
+    }
+
+    public static Storage openRW(String path) throws IOException {
+        Storage storage = new StorageFS(path);
+        storage.open("rw");
+        return storage;
     }
 }

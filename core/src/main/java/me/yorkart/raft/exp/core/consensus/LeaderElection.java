@@ -348,7 +348,7 @@ public class LeaderElection {
             currentTerm = newTerm;
             leaderId = 0;
             votedFor = 0;
-            log.updateMetaData(currentTerm, votedFor, null);
+            log.updateMetadata(currentTerm, votedFor, null);
         }
 
         state = NodeState.FOLLOWER;
@@ -428,7 +428,7 @@ public class LeaderElection {
                 if (canGranted && leaderElection.votedFor == 0) {
                     leaderElection.stepDown(request.getTerm());
                     leaderElection.votedFor = request.getCandidateId();
-                    leaderElection.log.updateMetaData(leaderElection.currentTerm, leaderElection.votedFor, null);
+                    leaderElection.log.updateMetadata(leaderElection.currentTerm, leaderElection.votedFor, null);
 
                     responseBuilder.setVoteGranted(true);
                     responseBuilder.setTerm(leaderElection.currentTerm);
@@ -532,7 +532,7 @@ public class LeaderElection {
                 }
 
                 leaderElection.log.append(entries);
-                leaderElection.log.updateMetaData(leaderElection.currentTerm, null, leaderElection.log.getLastLogIndex());
+                leaderElection.log.updateMetadata(leaderElection.currentTerm, null, leaderElection.log.getLastLogIndex());
 
                 advanceCommitIndex(request);
 

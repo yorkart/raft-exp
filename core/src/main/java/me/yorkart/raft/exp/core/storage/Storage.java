@@ -27,7 +27,11 @@ public abstract class Storage {
 
     public abstract int read(byte b[]) throws IOException;
 
+    public abstract int readInt() throws IOException;
+
     public abstract byte[] readAll() throws IOException;
+
+    public abstract void writeInt(int v) throws IOException;
 
     public abstract void write(byte b[]) throws IOException;
 
