@@ -19,7 +19,7 @@ public class LogTest {
 
     @Before
     public void logConstruction() {
-        log = new Log("/data/raft", 20);
+        log = new Log("/data/raft/log", 20);
     }
 
     @After
@@ -42,11 +42,6 @@ public class LogTest {
     @Test
     public void testReadMetadata() {
         System.out.println(log.getMetadata().load());
-    }
-
-    @Test
-    public void testListSegments() {
-        log.listSegments();
     }
 
     @Test

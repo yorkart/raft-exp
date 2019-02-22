@@ -65,6 +65,8 @@ public class Segment {
         segment.size = segment.storage.length();
         segment.canWrite = true;
 
+        loadRecord(segment);
+
         return segment;
     }
 
@@ -82,7 +84,30 @@ public class Segment {
         segment.size = segment.storage.length();
         segment.canWrite = true;
 
+        loadRecord(segment);
+
         return segment;
+    }
+
+    private static void loadRecord(Segment segment) throws IOException {
+        segment.storage.seek(0);
+
+        long totalLength = segment.getSize();
+        long offset = 0;
+        while (offset < totalLength) {
+            int len = segment.storage.readInt();
+            byte[] bytes = new byte[len];
+            segment.storage.read(bytes);
+
+            RaftMessage.LogEntry entry = RaftMessage.LogEntry.parseFrom(bytes);
+            if (entry == null) {
+                throw new RuntimeException("read segment log failed. segment:" + segment);
+            }
+
+            segment.entries.add(new Record(offset, entry));
+
+            offset = segment.storage.getFilePointer();
+        }
     }
 
     private Segment() {
@@ -129,11 +154,17 @@ public class Segment {
                 new Record(this.storage.getFilePointer(), entry)
         );
 
+        this.storage.writeInt(entryBytes.length);
         this.storage.write(entryBytes);
-        this.size += entryBytes.length;
+        this.size = this.storage.getFilePointer();
     }
 
-    public void deleteAfterIndex(long index) throws IOException {
+    /**
+     * delete uncommitted logs from storage's tail, (last_index_kept, infinity) will be discarded
+     * @param index
+     * @throws IOException
+     */
+    public void truncateSuffix(long index) throws IOException {
         int i = (int) (index + 1 - this.startIndex);
 
         this.endIndex = index;

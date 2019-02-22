@@ -525,7 +525,7 @@ public class LeaderElection {
 
                         // 日志任期不一致，删除本地争议索引后的所有数据
                         long lastIndexKept = index - 1;
-                        leaderElection.log.deleteAfterIndex(lastIndexKept);
+                        leaderElection.log.truncateSuffix(lastIndexKept);
                     }
 
                     entries.add(entry);

@@ -15,7 +15,7 @@ public class Metadata {
     private static Logger logger = LoggerFactory.getLogger(Metadata.class);
 
     private String logMetadataFilePath;
-    private RaftMessage.LogMetaData metadata;
+    private volatile RaftMessage.LogMetaData metadata;
 
     public Metadata(String logMetadataFilePath) {
         this.logMetadataFilePath = logMetadataFilePath;
