@@ -1,6 +1,7 @@
 package me.yorkart.raft.exp.core.consensus;
 
 import me.yorkart.raft.exp.core.storage.Log;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -5,7 +5,6 @@ import lombok.Setter;
 
 /**
  * raft配置选项
- * Created by wenweihu86 on 2017/5/2.
  */
 @Setter
 @Getter
@@ -43,5 +42,5 @@ public class RaftOptions {
     private boolean asyncWrite = false;
 
     // raft的log和snapshot父目录，绝对路径
-    private String dataDir = System.getProperty("me.yorkart.raft.exp.core.raft.data.dir");
+    private String dataDir = "/data/raft/log";
 }

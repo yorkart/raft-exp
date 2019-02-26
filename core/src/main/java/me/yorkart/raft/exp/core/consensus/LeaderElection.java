@@ -90,7 +90,7 @@ public class LeaderElection {
         stateMachine = new SequenceStateMachine(raftOptions.getDataDir());
 
         // init from metadata
-        log = new Log("", 1024 * 32);
+        log = new Log("/data/raft/log", 1024 * 32);
         currentTerm = log.getMetadata().getCurrentTerm();
         votedFor = log.getMetadata().getVotedFor();
 
